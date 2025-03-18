@@ -1,0 +1,10 @@
+-I.
+-I${workspaceFolder}
+-I${workspaceFolder}/kernel
+-I${workspaceFolder}/user
+-Wall
+-Werror
+-std=gnu99
+-O2
+-target
+riscv64-linux-gnu
