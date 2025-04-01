@@ -4,12 +4,11 @@
 
 int main(int argc, char *argv[])
 {
-
-  if (argc != 1)
-  {
+  if(argc != 1){
     fprintf(2, "Usage: ps\n");
     exit(1);
   }
-
+  
+  ps();
   exit(0);
 }

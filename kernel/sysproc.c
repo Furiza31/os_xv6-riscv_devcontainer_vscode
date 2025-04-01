@@ -89,3 +89,10 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64 sys_ps(void)
+{
+  printf("PID\tSTATUS\tCOMMAND");
+  procdump();
+  return 0;
+}
