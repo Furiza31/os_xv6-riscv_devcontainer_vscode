@@ -670,6 +670,8 @@ procdump(void)
   char *state;
 
   printf("\n");
+  printf("PID\tSTATUS\tCOMMAND");
+  printf("\n");
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;

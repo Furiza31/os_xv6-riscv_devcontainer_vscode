@@ -92,7 +92,6 @@ sys_uptime(void)
 
 uint64 sys_ps(void)
 {
-  printf("PID\tSTATUS\tCOMMAND");
   procdump();
   return 0;
 }
