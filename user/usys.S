@@ -110,3 +110,8 @@ ps:
  li a7, SYS_ps
  ecall
  ret
+.global pstree
+pstree:
+ li a7, SYS_pstree
+ ecall
+ ret

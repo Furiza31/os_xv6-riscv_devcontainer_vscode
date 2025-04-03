@@ -95,3 +95,9 @@ uint64 sys_ps(void)
   procdump();
   return 0;
 }
+
+uint64 sys_pstree(void)
+{
+  proctree();
+  return 0;
+}

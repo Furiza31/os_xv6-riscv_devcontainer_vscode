@@ -121,6 +121,7 @@ UPROGS=\
 	$U/_sleep\
 	$U/_uptime\
 	$U/_ps\
+	$U/_pstree\
 	$U/_find\
 	$U/_forktest\
 	$U/_grep\

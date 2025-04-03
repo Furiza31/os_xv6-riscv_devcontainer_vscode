@@ -659,12 +659,12 @@ void
 procdump(void)
 {
   static char *states[] = {
-  [UNUSED]    "unused",
-  [USED]      "used",
-  [SLEEPING]  "sleep ",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
+  [UNUSED] = "unused",
+  [USED] = "used",
+  [SLEEPING] = "sleep",
+  [RUNNABLE] = "runble",
+  [RUNNING] = "run",
+  [ZOMBIE] = "zombie"
   };
   struct proc *p;
   char *state;
@@ -680,6 +680,26 @@ procdump(void)
     else
       state = "???";
     printf("%d\t%s\t%s", p->pid, state, p->name);
+    printf("\n");
+  }
+}
+
+// Print a process tree to console.
+// Runs when user types ^T on console.
+// No lock to avoid wedging a stuck machine further.
+void
+proctree(void)
+{
+  struct proc *p;
+  printf("\n");
+  for (p = proc; p < &proc[NPROC]; p++) {
+    if (p->state == UNUSED)
+      continue;
+    if (p->parent == 0) {
+      printf("PROCESS %s\tPID: %d", p->name, p->pid);
+    } else {
+      printf("PARENT %s\tPID: %d\n└── PROCESS %s\tPID: %d", p->parent->name, p->parent->pid, p->name, p->pid);
+    }
     printf("\n");
   }
 }
