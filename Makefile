@@ -122,6 +122,7 @@ UPROGS=\
 	$U/_uptime\
 	$U/_ps\
 	$U/_pstree\
+	$U/_psync_tst\
 	$U/_find\
 	$U/_forktest\
 	$U/_grep\
