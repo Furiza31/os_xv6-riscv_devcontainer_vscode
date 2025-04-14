@@ -124,6 +124,7 @@ UPROGS=\
 	$U/_phierarchy_tst\
 	$U/_pstree\
 	$U/_psync_tst\
+	$U/_pmem_test\
 	$U/_find\
 	$U/_forktest\
 	$U/_grep\
