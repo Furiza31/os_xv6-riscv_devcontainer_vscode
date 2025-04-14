@@ -121,6 +121,7 @@ UPROGS=\
 	$U/_sleep\
 	$U/_uptime\
 	$U/_ps\
+	$U/_phierarchy_tst\
 	$U/_pstree\
 	$U/_psync_tst\
 	$U/_find\

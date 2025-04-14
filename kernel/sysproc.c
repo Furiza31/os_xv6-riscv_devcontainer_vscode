@@ -101,3 +101,12 @@ uint64 sys_pstree(void)
   proctree();
   return 0;
 }
+
+uint64
+sys_getppid(void)
+{
+  struct proc *p = myproc();
+  if(p->parent)
+    return p->parent->pid;
+  return 0;
+}
