@@ -1,0 +1,43 @@
+@startuml "Cloisonnement entre processus"
+title Cloisonnement des données entre le processus parent et le processus enfant
+
+actor User as u
+
+participant "Processus Parent" as P
+participant "Pipe (p[0] / p[1])" as pipe
+participant "Processus Enfant" as C
+
+u -> P: Lancement du programme pmem_test
+
+note right of P
+  int parent_int = 10
+  char parent_msg[50] = "parent message"
+  pipe(p)
+end note
+
+P -> P: fork()
+
+alt Enfant
+  P -> C: Exécution du code enfant
+  note right of C
+    // Copie des variables du parent
+    parent_int = 10
+    parent_msg = "parent message"
+  end note
+
+  C -> C: parent_int += 10 (devient 20)
+  C -> C: parent_msg = "changed by child ;)"
+  C -> pipe: write("done")
+  C -> C: exit()
+end alt
+
+P -> pipe: read("done")
+P -> P: Vérification des variables du parent
+note right of P
+  parent_int = 10
+  parent_msg = "parent message"
+end note
+
+P -> P: wait(child)
+
+@enduml
