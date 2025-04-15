@@ -202,7 +202,7 @@ Nous pouvons voir que les deux processus essaient d'afficher en même temps, ce 
 
 #### 3.2.1 Diagrame UML représentant la concurrence entre les processus
 
-![Synchronisation processus](./images/synchronisation_processus.puml)
+![Synchronisation processus](./images/synchronisation_processus.png)
 
 ### 3.3 Parentalité des processus
 
@@ -335,7 +335,7 @@ Le programme affiche également la hiérarchie des processus à l'aide de la com
 
 #### 3.3.1 Diagrame UML représentant la parentalité entre les processus
 
-![Parentalité processus](./images/parentalite_processus.puml)
+![Parentalité processus](./images/parentalite_processus.png)
 
 ### 3.4 Cloisonnement des données entre processus
 
@@ -417,7 +417,7 @@ Le programme `pmem_test` teste le cloisonnement des données entre processus dan
 
 #### 3.4.1 Diagrame UML représentant le cloisonnement des données entre les processus
 
-![Cloisonnement des données entre processus](./images/cloisonnement_processus.puml)
+![Cloisonnement des données entre processus](./images/cloisonnement_processus.png)
 
 ## 8. Annexes et Références
 
