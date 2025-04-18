@@ -123,6 +123,7 @@ UPROGS=\
 	$U/_ps\
 	$U/_phierarchy_tst\
 	$U/_pstree\
+	$U/_pingpong\
 	$U/_psync_tst\
 	$U/_pmem_test\
 	$U/_find\
@@ -138,6 +139,7 @@ UPROGS=\
 	$U/_stressfs\
 	$U/_usertests\
 	$U/_grind\
+	$U/_devine\
 	$U/_wc\
 	$U/_zombie\
 
