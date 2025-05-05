@@ -45,3 +45,4 @@ void *memcpy(void *, const void *, uint);
 int rand(void);
 void srand(unsigned int);
 int rand_r(unsigned int *);
+int abs(int x);

@@ -127,6 +127,7 @@ UPROGS=\
 	$U/_psync_tst\
 	$U/_pmem_test\
 	$U/_find\
+	$U/_oxo\
 	$U/_forktest\
 	$U/_grep\
 	$U/_init\

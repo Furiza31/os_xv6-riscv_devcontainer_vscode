@@ -183,3 +183,8 @@ rand_r(unsigned int *state)
   *state = (unsigned int)(val - 1);
   return r;
 }
+
+int
+abs(int x) {
+  return x < 0 ? -x : x;
+}
