@@ -42,3 +42,6 @@ void free(void *);
 int atoi(const char *);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
+int rand(void);
+void srand(unsigned int);
+int rand_r(unsigned int *);

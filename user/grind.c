@@ -14,7 +14,7 @@
 
 // from FreeBSD.
 int
-do_rand(unsigned long *ctx)
+grind_do_rand(unsigned long *ctx)
 {
 /*
  * Compute x = (7^5 * x) mod (2^31 - 1)
@@ -42,9 +42,9 @@ do_rand(unsigned long *ctx)
 unsigned long rand_next = 1;
 
 int
-rand(void)
+grind_rand(void)
 {
-    return (do_rand(&rand_next));
+    return (grind_do_rand(&rand_next));
 }
 
 void
@@ -66,7 +66,7 @@ go(int which_child)
     iters++;
     if((iters % 500) == 0)
       write(1, which_child?"B":"A", 1);
-    int what = rand() % 23;
+    int what = grind_rand() % 23;
     if(what == 1){
       close(open("grindir/../a", O_CREATE|O_RDWR));
     } else if(what == 2){

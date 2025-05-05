@@ -50,7 +50,6 @@ void test_genealogy(int gen, int max_gen, int current_gen) {
   } else if (pid == 0) {
     printf("child %d created with PID %d from parent PID %d\n\n", current_gen, getpid(), getppid());
 
-    // If we're at the last generation, show the complete hierarchy
     if (current_gen == max_gen - 1) {
       printf("\nLet's see process hierarchy with pstree:\n");
       int ps_pid = fork();
