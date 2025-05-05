@@ -1,0 +1,15 @@
+@startuml OXO_TourB
+participant Referee
+participant PlayerB
+
+Referee -> PlayerB : write(pipeParentToB, board[9])  
+activate PlayerB
+
+PlayerB -> PlayerB : getValidRandomMove(board)  
+PlayerB --> Referee : write(pipeBToParent, move)  
+deactivate PlayerB
+
+Referee -> Referee : board[move] = O  
+Referee -> Referee : print “Joueur B : à vous de jouer! Position {move+1}”
+Referee -> Referee : printBoard(board)
+@enduml

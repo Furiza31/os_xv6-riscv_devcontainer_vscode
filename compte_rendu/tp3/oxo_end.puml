@@ -1,0 +1,26 @@
+@startuml OXO_Fin
+participant Referee
+participant PlayerA
+participant PlayerB
+
+alt Victoire de A (X)
+    Referee -> Referee : checkWin(board) == -1
+    Referee -> PlayerA : write(pipeParentToA, endSignal)
+    Referee -> PlayerB : write(pipeParentToB, endSignal)
+    Referee -> Referee : print "Bravo Joueur A: vous avez gagné !"
+else Victoire de B (O)
+    Referee -> Referee : checkWin(board) == +1
+    Referee -> PlayerA : write(pipeParentToA, endSignal)
+    Referee -> PlayerB : write(pipeParentToB, endSignal)
+    Referee -> Referee : print "Bravo Joueur B: vous avez gagné !"
+else Match nul
+    Referee -> PlayerA : write(pipeParentToA, endSignal)
+    Referee -> PlayerB : write(pipeParentToB, endSignal)
+    Referee -> Referee : print "C'est un match nul !"
+end
+
+note over PlayerA,PlayerB
+  Chaque joueur 
+  lit endSignal et sort
+end note
+@enduml
