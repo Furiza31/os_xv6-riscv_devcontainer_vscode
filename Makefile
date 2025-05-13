@@ -142,7 +142,8 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_pthread-demo\
-	$U/_oxo
+	$U/_oxo\
+	$U/_pthread-trade
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
