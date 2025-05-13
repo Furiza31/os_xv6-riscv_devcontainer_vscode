@@ -31,6 +31,7 @@ extern struct cpu cpus[NCPU];
 // per-process data for the trap handling code in trampoline.S.
 // sits in a page by itself just under the trampoline page in the
 // user page table. not specially mapped in the kernel page table.
+// the sscratch register points here.
 // uservec in trampoline.S saves user registers in the trapframe,
 // then initializes registers from the trapframe's
 // kernel_sp, kernel_hartid, kernel_satp, and jumps to kernel_trap.
@@ -79,6 +80,26 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
+struct proc_vm {
+  struct spinlock lock;
+  uint64 sz;                   // Size of process memory (bytes)
+  pagetable_t pagetable;       // User page table
+  uint64 last_trapframe;       // User space address of where the last trapfram was allocated in the address space
+  int reference_count;
+};
+
+struct proc_files {
+  struct spinlock lock;
+  struct file *ofile[NOFILE];  // Open files
+  int reference_count;
+};
+
+struct proc_fs {
+  struct spinlock lock;
+  struct inode *cwd;           // Current directory
+  int reference_count;
+};
+
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -97,11 +118,12 @@ struct proc {
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
-  uint64 sz;                   // Size of process memory (bytes)
-  pagetable_t pagetable;       // User page table
+  struct proc_vm* vm;
+  struct proc_files* files;
+  struct proc_fs* fs;
   struct trapframe *trapframe; // data page for trampoline.S
+  uint64 user_trapframe;       // address of trapframe in userspace
   struct context context;      // swtch() here to run process
-  struct file *ofile[NOFILE];  // Open files
-  struct inode *cwd;           // Current directory
+
   char name[16];               // Process name (debugging)
 };

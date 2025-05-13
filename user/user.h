@@ -1,4 +1,6 @@
 struct stat;
+struct rtcdate;
+struct clone_args;
 
 // system calls
 int fork(void);
@@ -9,7 +11,7 @@ int write(int, const void *, int);
 int read(int, void *, int);
 int close(int);
 int kill(int);
-int exec(const char *, char **);
+int exec(char *, char **);
 int open(const char *, int);
 int mknod(const char *, short, short);
 int unlink(const char *);
@@ -22,9 +24,9 @@ int getpid(void);
 char *sbrk(int);
 int sleep(int);
 int uptime(void);
-int ps(void);
-int pstree(void);
-int getppid(void);
+int clone(struct clone_args *);
+int waitpid(int, int *);
+int futex(int, void *);
 
 // ulib.c
 int stat(const char *, struct stat *);
@@ -43,6 +45,4 @@ int atoi(const char *);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
 int rand(void);
-void srand(unsigned int);
-int rand_r(unsigned int *);
-int abs(int x);
+void srand(unsigned);

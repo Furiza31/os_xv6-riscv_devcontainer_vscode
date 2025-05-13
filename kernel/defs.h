@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct clone_args;
 
 // bio.c
 void            binit(void);
@@ -85,28 +86,34 @@ void            printfinit(void);
 int             cpuid(void);
 void            exit(int);
 int             fork(void);
+int             clone(struct clone_args);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
+struct proc_vm*      alloc_vm_entry(struct proc* p);
+void                  free_vm_entry(struct proc_vm* e);
+struct proc_files*   alloc_files_entry();
+void                  free_files_entry(struct proc_files* e);
+struct proc_fs*      alloc_fs_entry();
+void                  free_fs_entry(struct proc_fs* e);
 int             kill(int);
-int             killed(struct proc*);
-void            setkilled(struct proc*);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
 struct proc*    myproc();
 void            procinit(void);
+void            proc_resource_entries_init(void);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
 int             wait(uint64);
-void            wakeup(void*);
+int             waitpid(uint64, uint64);
+int             wakeup(void*);
 void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
-void            proctree(void);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -135,9 +142,9 @@ int             strncmp(const char*, const char*, uint);
 char*           strncpy(char*, const char*, int);
 
 // syscall.c
-void            argint(int, int*);
+int             argint(int, int*);
 int             argstr(int, char*, int);
-void            argaddr(int, uint64 *);
+int             argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
@@ -162,14 +169,13 @@ void            kvminithart(void);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
-void            uvmfirst(pagetable_t, uchar *, uint);
-uint64          uvmalloc(pagetable_t, uint64, uint64, int);
+void            uvminit(pagetable_t, uchar *, uint);
+uint64          uvmalloc(pagetable_t, uint64, uint64);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
 void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);
-pte_t *         walk(pagetable_t, uint64, int);
 uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
@@ -185,6 +191,10 @@ void            plic_complete(int);
 void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
+
+// futex.c
+int             futex(int, uint64);
+void            futex_init();
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

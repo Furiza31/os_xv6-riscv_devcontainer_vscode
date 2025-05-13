@@ -81,7 +81,7 @@ pipewrite(struct pipe *pi, uint64 addr, int n)
 
   acquire(&pi->lock);
   while(i < n){
-    if(pi->readopen == 0 || killed(pr)){
+    if(pi->readopen == 0 || pr->killed){
       release(&pi->lock);
       return -1;
     }
@@ -90,7 +90,7 @@ pipewrite(struct pipe *pi, uint64 addr, int n)
       sleep(&pi->nwrite, &pi->lock);
     } else {
       char ch;
-      if(copyin(pr->pagetable, &ch, addr + i, 1) == -1)
+      if(copyin(pr->vm->pagetable, &ch, addr + i, 1) == -1)
         break;
       pi->data[pi->nwrite++ % PIPESIZE] = ch;
       i++;
@@ -111,7 +111,7 @@ piperead(struct pipe *pi, uint64 addr, int n)
 
   acquire(&pi->lock);
   while(pi->nread == pi->nwrite && pi->writeopen){  //DOC: pipe-empty
-    if(killed(pr)){
+    if(pr->killed){
       release(&pi->lock);
       return -1;
     }
@@ -121,7 +121,7 @@ piperead(struct pipe *pi, uint64 addr, int n)
     if(pi->nread == pi->nwrite)
       break;
     ch = pi->data[pi->nread++ % PIPESIZE];
-    if(copyout(pr->pagetable, addr + i, &ch, 1) == -1)
+    if(copyout(pr->vm->pagetable, addr + i, &ch, 1) == -1)
       break;
   }
   wakeup(&pi->nwrite);  //DOC: piperead-wakeup

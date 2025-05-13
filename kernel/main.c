@@ -19,6 +19,8 @@ main()
     kinit();         // physical page allocator
     kvminit();       // create kernel page table
     kvminithart();   // turn on paging
+    proc_resource_entries_init(); // resource tables
+    futex_init();
     procinit();      // process table
     trapinit();      // trap vectors
     trapinithart();  // install kernel trap vector

@@ -1,16 +1,19 @@
 #include "types.h"
 #include "riscv.h"
 #include "defs.h"
+#include "date.h"
 #include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "clone.h"
 
 uint64
 sys_exit(void)
 {
   int n;
-  argint(0, &n);
+  if(argint(0, &n) < 0)
+    return -1;
   exit(n);
   return 0;  // not reached
 }
@@ -31,18 +34,20 @@ uint64
 sys_wait(void)
 {
   uint64 p;
-  argaddr(0, &p);
+  if(argaddr(0, &p) < 0)
+    return -1;
   return wait(p);
 }
 
 uint64
 sys_sbrk(void)
 {
-  uint64 addr;
+  int addr;
   int n;
 
-  argint(0, &n);
-  addr = myproc()->sz;
+  if(argint(0, &n) < 0)
+    return -1;
+  addr = myproc()->vm->sz;
   if(growproc(n) < 0)
     return -1;
   return addr;
@@ -54,11 +59,12 @@ sys_sleep(void)
   int n;
   uint ticks0;
 
-  argint(0, &n);
+  if(argint(0, &n) < 0)
+    return -1;
   acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){
-    if(killed(myproc())){
+    if(myproc()->killed){
       release(&tickslock);
       return -1;
     }
@@ -73,7 +79,8 @@ sys_kill(void)
 {
   int pid;
 
-  argint(0, &pid);
+  if(argint(0, &pid) < 0)
+    return -1;
   return kill(pid);
 }
 
@@ -90,23 +97,52 @@ sys_uptime(void)
   return xticks;
 }
 
-uint64 sys_ps(void)
+uint64
+sys_clone(void)
 {
-  procdump();
-  return 0;
-}
+  struct proc* p = myproc();
+  uint64 cl_addr;
 
-uint64 sys_pstree(void)
-{
-  proctree();
-  return 0;
+  struct clone_args cl;
+
+
+  if(argaddr(0, &cl_addr) < 0) {
+    return -1;
+  }
+
+  if(cl_addr >= p->vm->sz || cl_addr + sizeof(uint64) > p->vm->sz) {
+    return -1;
+  }
+
+  if(copyin(p->vm->pagetable, (char *)&cl, cl_addr, sizeof(struct clone_args)) != 0) {
+    return -1;
+  }
+
+  if(cl.flags & CLONE_VM && (cl.stack == 0))  {
+    return -1;
+  }
+
+  return clone(cl);
 }
 
 uint64
-sys_getppid(void)
+sys_waitpid(void)
 {
-  struct proc *p = myproc();
-  if(p->parent)
-    return p->parent->pid;
-  return 0;
+  int pid;
+  uint64 p;
+  if(argint(0, &pid) < 0 || argaddr(1, &p) < 0)
+    return -1;
+  return waitpid(pid, p);
+}
+
+uint64
+sys_futex(void)
+{
+  int op;
+  uint64 p;
+  if(argint(0, &op) < 0 || argaddr(1, &p) < 0)
+    return -1;
+
+
+  return futex(op, p);
 }

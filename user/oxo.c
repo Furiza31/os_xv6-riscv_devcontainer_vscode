@@ -1,7 +1,8 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
-#include "user/user.h"
-#include "kernel/fcntl.h"
+#include "../kernel/types.h"
+#include "../kernel/stat.h"
+#include "../kernel/fcntl.h"
+#include "../user/user.h"
+#include "../user/pthread.h"
 
 #define BOARD_SIZE 9
 #define EMPTY 9
@@ -9,9 +10,22 @@
 #define PLAYER_O 1
 #define WINNING_SUM 3
 
-// Indice des pipes
-#define READ 0
-#define WRITE 1
+// Shared game state
+typedef struct {
+  int board[BOARD_SIZE];
+  int currentPlayer;
+  int gameOver;
+  int winner;
+  
+  // Move communication between threads
+  int moveReady;
+  int move;
+  
+  // Synchronization
+  pthread_mutex_t mutex;
+} GameState;
+
+GameState gameState;
 
 void printBoard(int* board) {
   for (int i = 0; i < BOARD_SIZE; i++) {
@@ -34,32 +48,37 @@ void printBoard(int* board) {
   printf("\n");
 }
 
+// Define our own abs function since it's not provided in the standard library
+int my_abs(int x) {
+  return (x < 0) ? -x : x;
+}
+
 int checkWin(int* board) {
-  // Regarde les lignes
+  // Check les lignes
   for (int i = 0; i < 3; i++) {
     int rowSum = board[i*3] + board[i*3 + 1] + board[i*3 + 2];
-    if (abs(rowSum) == WINNING_SUM) {
+    if (my_abs(rowSum) == WINNING_SUM) {
       return rowSum / WINNING_SUM;
     }
   }
   
-  // Regarde les colonnes
+  // Check les colonnes
   for (int i = 0; i < 3; i++) {
     int colSum = board[i] + board[i + 3] + board[i + 6];
-    if (abs(colSum) == WINNING_SUM) {
+    if (my_abs(colSum) == WINNING_SUM) {
       return colSum / WINNING_SUM;
     }
   }
   
-  // Regarde les diagonales
+  // Check les diagonales
   int diag1 = board[0] + board[4] + board[8];
   int diag2 = board[2] + board[4] + board[6];
   
-  if (abs(diag1) == WINNING_SUM) {
+  if (my_abs(diag1) == WINNING_SUM) {
     return diag1 / WINNING_SUM;
   }
   
-  if (abs(diag2) == WINNING_SUM) {
+  if (my_abs(diag2) == WINNING_SUM) {
     return diag2 / WINNING_SUM;
   }
   
@@ -67,12 +86,13 @@ int checkWin(int* board) {
 }
 
 int isDraw(int* board) {
-  int sum = 0;
   for (int i = 0; i < BOARD_SIZE; i++) {
-    sum += board[i];
+    if (board[i] == EMPTY) {
+      return 0; // Still have empty cells, not a draw yet
+    }
   }
   
-  return abs(sum) == 1;
+  return 1; // No empty cells and no winner means draw
 }
 
 int isGameOver(int* board) {
@@ -90,180 +110,170 @@ int getValidRandomMove(int* board) {
     }
   }
 
-  // Si aucune case vide, retourner -1
+  // Aucune case vide, retourner -1
   if (count == 0) {
     return -1;
   }
 
   // Générer un nombre aléatoire
-  uint32 r, seed = uptime();
+  uint seed = uptime();
   srand(seed);
-  r = rand();
+  int r = rand();
   
   // Choisir une case vide aléatoire
   int randomIndex = r % count;
   return emptyCells[randomIndex];
 }
 
-void playAsReferee(int* board, int pipeToA[2], int pipeFromA[2], 
-                   int pipeToB[2], int pipeFromB[2]) {
-  int currentPlayer = PLAYER_X; // X commence
-  int move;
-  int winner = 0;
-
-  printBoard(board);
-
-  while (!isGameOver(board)) {
-    if (currentPlayer == PLAYER_X) {
-      // Demander le coup du joueur X
-      write(pipeToA[WRITE], board, sizeof(int) * BOARD_SIZE);
-      read(pipeFromA[READ], &move, sizeof(int));
-      
-      if (move >= 0 && move < BOARD_SIZE && board[move] == EMPTY) {
-        board[move] = PLAYER_X;
-        printf("Joueur A : à vous de joueur! Position %d\n", move + 1);
+void* playAsReferee(void* arg) {
+  pthread_mutex_lock(&gameState.mutex);
+  
+  printf("Début de la partie!\n");
+  printBoard(gameState.board);
+  
+  // Tant que le jeu n'est pas terminé
+  while (!isGameOver(gameState.board)) {
+    // Attendre qu'un joueur fasse son coup
+    gameState.moveReady = 0;
+    pthread_mutex_unlock(&gameState.mutex);
+    
+    // Attente active (dans un vrai système, on utiliserait des conditions variables)
+    while (1) {
+      pthread_mutex_lock(&gameState.mutex);
+      if (gameState.moveReady) {
+        break;
       }
-    } else {
-      // Demander le coup du joueur O
-      write(pipeToB[WRITE], board, sizeof(int) * BOARD_SIZE);
-      read(pipeFromB[READ], &move, sizeof(int));
-      
-      if (move >= 0 && move < BOARD_SIZE && board[move] == EMPTY) {
-        board[move] = PLAYER_O;
-        printf("Joueur B : à vous de joueur! Position %d\n", move + 1);
+      pthread_mutex_unlock(&gameState.mutex);
+      sleep(5); // Réduire la charge CPU
+    }
+    
+    // Traiter le coup
+    int player = gameState.currentPlayer;
+    int move = gameState.move;
+    
+    if (move >= 0 && move < BOARD_SIZE && gameState.board[move] == EMPTY) {
+      gameState.board[move] = player;
+      if (player == PLAYER_X) {
+        printf("Joueur A : a joué! Position %d\n", move + 1);
+      } else {
+        printf("Joueur B : a joué! Position %d\n", move + 1);
       }
     }
-
-    printBoard(board);
     
-    currentPlayer = -currentPlayer;
-
-    sleep(10);
+    printBoard(gameState.board);
+    
+    // Changer de joueur
+    gameState.currentPlayer = -gameState.currentPlayer;
+    
+    // Vérifier si le jeu est terminé
+    if (isGameOver(gameState.board)) {
+      gameState.gameOver = 1;
+      gameState.winner = checkWin(gameState.board);
+    }
+    
+    sleep(5); // Pause pour voir l'évolution du jeu
   }
-
-  winner = checkWin(board);
-  if (winner == PLAYER_X) {
+  
+  // Annoncer le résultat
+  if (gameState.winner == PLAYER_X) {
     printf("Bravo Joueur A: vous avez gagné la partie!\n");
-  } else if (winner == PLAYER_O) {
+  } else if (gameState.winner == PLAYER_O) {
     printf("Bravo Joueur B: vous avez gagné la partie!\n");
   } else {
     printf("C'est un match nul!\n");
   }
-
-  // Envoyer un signal de fin aux joueurs
-  int endSignal = -99;
-  write(pipeToA[WRITE], &endSignal, sizeof(int));
-  write(pipeToB[WRITE], &endSignal, sizeof(int));
+  
+  pthread_mutex_unlock(&gameState.mutex);
+  return 0;
 }
 
-void playAsPlayerA(int pipeToParent[2], int pipeFromParent[2]) {
-  int board[BOARD_SIZE];
-  int move;
-
+void* playAsPlayerA(void* arg) {
   while (1) {
-    if (read(pipeFromParent[READ], board, sizeof(int) * BOARD_SIZE) <= 0) {
+    pthread_mutex_lock(&gameState.mutex);
+    
+    // Vérifier si le jeu est terminé
+    if (gameState.gameOver) {
+      pthread_mutex_unlock(&gameState.mutex);
       break;
     }
-
-    if (board[0] == -99) {
-      break;
+    
+    // Vérifier si c'est mon tour
+    if (gameState.currentPlayer == PLAYER_X && !gameState.moveReady) {
+      // Jouer un coup
+      gameState.move = getValidRandomMove(gameState.board);
+      gameState.moveReady = 1;
     }
-
-    move = getValidRandomMove(board);
-    write(pipeToParent[WRITE], &move, sizeof(int));
+    
+    pthread_mutex_unlock(&gameState.mutex);
+    sleep(5); // Réduire la charge CPU
   }
+  
+  return 0;
 }
 
-void playAsPlayerB(int pipeToParent[2], int pipeFromParent[2]) {
-  int board[BOARD_SIZE];
-  int move;
-
+void* playAsPlayerB(void* arg) {
   while (1) {
-    if (read(pipeFromParent[READ], board, sizeof(int) * BOARD_SIZE) <= 0) {
+    pthread_mutex_lock(&gameState.mutex);
+    
+    // Vérifier si le jeu est terminé
+    if (gameState.gameOver) {
+      pthread_mutex_unlock(&gameState.mutex);
       break;
     }
-
-    if (board[0] == -99) {
-      break;
+    
+    // Vérifier si c'est mon tour
+    if (gameState.currentPlayer == PLAYER_O && !gameState.moveReady) {
+      // Jouer un coup
+      gameState.move = getValidRandomMove(gameState.board);
+      gameState.moveReady = 1;
     }
-
-    move = getValidRandomMove(board);
-    write(pipeToParent[WRITE], &move, sizeof(int));
+    
+    pthread_mutex_unlock(&gameState.mutex);
+    sleep(5); // Réduire la charge CPU
   }
+  
+  return 0;
 }
-
 
 int main(int argc, char *argv[])
 {
-  int board[BOARD_SIZE];
-  int pipeParentToA[2], pipeAToParent[2];
-  int pipeParentToB[2], pipeBToParent[2];
-  int pid1, pid2;
-
-  // Créer le tableau de jeu
+  pthread_t refereeThread, playerAThread, playerBThread;
+  
+  // Initialisation de l'état du jeu
   for (int i = 0; i < BOARD_SIZE; i++) {
-    board[i] = EMPTY;
+    gameState.board[i] = EMPTY;
   }
-
-  // Créer les pipes
-  if (pipe(pipeParentToA) < 0 || pipe(pipeAToParent) < 0 ||
-      pipe(pipeParentToB) < 0 || pipe(pipeBToParent) < 0) {
-    printf("Erreur lors de la création des pipes\n");
+  gameState.currentPlayer = PLAYER_X;  // X commence
+  gameState.gameOver = 0;
+  gameState.winner = 0;
+  gameState.moveReady = 0;
+  
+  // Initialisation du mutex
+  pthread_mutex_init(&gameState.mutex, 0);
+  
+  // Création des threads
+  if (pthread_create(&refereeThread, 0, playAsReferee, 0) != 0) {
+    printf("Erreur lors de la création du thread d'arbitre\n");
     exit(1);
   }
-
-  // Joueur (A - X)
-  pid1 = fork();
-  if (pid1 < 0) {
-    printf("Erreur lors de la création du joueur X\n");
+  
+  if (pthread_create(&playerAThread, 0, playAsPlayerA, 0) != 0) {
+    printf("Erreur lors de la création du thread du joueur A\n");
     exit(1);
   }
-
-  if (pid1 == 0) {
-    // Child process (Joueur A - X)
-    close(pipeParentToA[WRITE]);
-    close(pipeAToParent[READ]);
-    close(pipeParentToB[READ]);
-    close(pipeParentToB[WRITE]);
-    close(pipeBToParent[READ]);
-    close(pipeBToParent[WRITE]);
-
-    playAsPlayerA(pipeAToParent, pipeParentToA);
-    exit(0);
-  }
-
-  // Joueur (B - O)
-  pid2 = fork();
-  if (pid2 < 0) {
-    printf("Erreur lors de la création du joueur B\n");
-    kill(pid1);
+  
+  if (pthread_create(&playerBThread, 0, playAsPlayerB, 0) != 0) {
+    printf("Erreur lors de la création du thread du joueur B\n");
     exit(1);
   }
-
-  if (pid2 == 0) {
-    // Child process (Joueur B - O)
-    close(pipeParentToB[WRITE]);
-    close(pipeBToParent[READ]);
-    close(pipeParentToA[READ]);
-    close(pipeParentToA[WRITE]);
-    close(pipeAToParent[READ]);
-    close(pipeAToParent[WRITE]);
-
-    playAsPlayerB(pipeBToParent, pipeParentToB);
-    exit(0);
-  }
-
-  // Parent process (Joueur - Referee)
-  close(pipeParentToA[READ]);
-  close(pipeAToParent[WRITE]);
-  close(pipeParentToB[READ]);
-  close(pipeBToParent[WRITE]);
-
-  playAsReferee(board, pipeParentToA, pipeAToParent, pipeParentToB, pipeBToParent);
-
-  // Attendre la fin des joueurs
-  wait(0);
-  wait(0);
-
+  
+  // Attendre que les threads se terminent
+  pthread_join(refereeThread, 0);
+  pthread_join(playerAThread, 0);
+  pthread_join(playerBThread, 0);
+  
+  // Libérer les ressources
+  pthread_mutex_destroy(&gameState.mutex);
+  
   exit(0);
 }

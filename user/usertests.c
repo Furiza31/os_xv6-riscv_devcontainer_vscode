@@ -7,6 +7,8 @@
 #include "kernel/syscall.h"
 #include "kernel/memlayout.h"
 #include "kernel/riscv.h"
+#include "kernel/clone.h"
+#include "kernel/futex.h"
 
 //
 // Tests xv6 system calls.  usertests without arguments runs them all
@@ -20,12 +22,6 @@
 #define BUFSZ  ((MAXOPBLOCKS+2)*BSIZE)
 
 char buf[BUFSZ];
-
-//
-// Section with tests that run fairly quickly.  Use -q if you want to
-// run just those.  With -q usertests also runs the ones that take a
-// fair of time.
-//
 
 // what if you pass ridiculous pointers to system calls
 // that read user memory with copyin?
@@ -1518,6 +1514,46 @@ linkunlink(char *s)
     exit(0);
 }
 
+// directory that uses indirect blocks
+void
+bigdir(char *s)
+{
+  enum { N = 500 };
+  int i, fd;
+  char name[10];
+
+  unlink("bd");
+
+  fd = open("bd", O_CREATE);
+  if(fd < 0){
+    printf("%s: bigdir create failed\n", s);
+    exit(1);
+  }
+  close(fd);
+
+  for(i = 0; i < N; i++){
+    name[0] = 'x';
+    name[1] = '0' + (i / 64);
+    name[2] = '0' + (i % 64);
+    name[3] = '\0';
+    if(link("bd", name) != 0){
+      printf("%s: bigdir link(bd, %s) failed\n", s, name);
+      exit(1);
+    }
+  }
+
+  unlink("bd");
+  for(i = 0; i < N; i++){
+    name[0] = 'x';
+    name[1] = '0' + (i / 64);
+    name[2] = '0' + (i % 64);
+    name[3] = '\0';
+    if(unlink(name) != 0){
+      printf("%s: bigdir unlink failed", s);
+      exit(1);
+    }
+  }
+}
 
 void
 subdir(char *s)
@@ -1724,6 +1760,59 @@ bigwrite(char *s)
   }
 }
 
+// concurrent writes to try to provoke deadlock in the virtio disk
+// driver.
+void
+manywrites(char *s)
+{
+  int nchildren = 4;
+  int howmany = 30; // increase to look for deadlock
+  
+  for(int ci = 0; ci < nchildren; ci++){
+    int pid = fork();
+    if(pid < 0){
+      printf("fork failed\n");
+      exit(1);
+    }
+
+    if(pid == 0){
+      char name[3];
+      name[0] = 'b';
+      name[1] = 'a' + ci;
+      name[2] = '\0';
+      unlink(name);
+      
+      for(int iters = 0; iters < howmany; iters++){
+        for(int i = 0; i < ci+1; i++){
+          int fd = open(name, O_CREATE | O_RDWR);
+          if(fd < 0){
+            printf("%s: cannot create %s\n", s, name);
+            exit(1);
+          }
+          int sz = sizeof(buf);
+          int cc = write(fd, buf, sz);
+          if(cc != sz){
+            printf("%s: write(%d) ret %d\n", s, sz, cc);
+            exit(1);
+          }
+          close(fd);
+        }
+        unlink(name);
+      }
+
+      unlink(name);
+      exit(0);
+    }
+  }
+
+  for(int ci = 0; ci < nchildren; ci++){
+    int st = 0;
+    wait(&st);
+    if(st != 0)
+      exit(st);
+  }
+  exit(0);
+}
 
 void
 bigfile(char *s)
@@ -2421,40 +2510,17 @@ stacktest(char *s)
     exit(xstatus);
 }
 
-// check that writes to text segment fault
-void
-textwrite(char *s)
-{
-  int pid;
-  int xstatus;
-  
-  pid = fork();
-  if(pid == 0) {
-    volatile int *addr = (int *) 0;
-    *addr = 10;
-    exit(1);
-  } else if(pid < 0){
-    printf("%s: fork failed\n", s);
-    exit(1);
-  }
-  wait(&xstatus);
-  if(xstatus == -1)  // kernel killed child?
-    exit(0);
-  else
-    exit(xstatus);
-}
-
 // regression test. copyin(), copyout(), and copyinstr() used to cast
 // the virtual page address to uint, which (with certain wild system
 // call arguments) resulted in a kernel page faults.
-void *big = (void*) 0xeaeb0b5b00002f5e;
 void
 pgbug(char *s)
 {
   char *argv[1];
   argv[0] = 0;
-  exec(big, argv);
-  pipe(big);
+  exec((char*)0xeaeb0b5b00002f5e, argv);
+
+  pipe((int*)0xeaeb0b5b00002f5e);
 
   exit(0);
 }
@@ -2543,7 +2609,6 @@ sbrklast(char *s)
     exit(1);
 }
 
-
 // does sbrk handle signed int32 wrap-around with
 // negative arguments?
 void
@@ -2552,190 +2617,6 @@ sbrk8000(char *s)
   sbrk(0x80000004);
   volatile char *top = sbrk(0);
   *(top-1) = *(top-1) + 1;
-}
-
-
-
-// regression test. test whether exec() leaks memory if one of the
-// arguments is invalid. the test passes if the kernel doesn't panic.
-void
-badarg(char *s)
-{
-  for(int i = 0; i < 50000; i++){
-    char *argv[2];
-    argv[0] = (char*)0xffffffff;
-    argv[1] = 0;
-    exec("echo", argv);
-  }
-  
-  exit(0);
-}
-
-struct test {
-  void (*f)(char *);
-  char *s;
-} quicktests[] = {
-  {copyin, "copyin"},
-  {copyout, "copyout"},
-  {copyinstr1, "copyinstr1"},
-  {copyinstr2, "copyinstr2"},
-  {copyinstr3, "copyinstr3"},
-  {rwsbrk, "rwsbrk" },
-  {truncate1, "truncate1"},
-  {truncate2, "truncate2"},
-  {truncate3, "truncate3"},
-  {openiputtest, "openiput"},
-  {exitiputtest, "exitiput"},
-  {iputtest, "iput"},
-  {opentest, "opentest"},
-  {writetest, "writetest"},
-  {writebig, "writebig"},
-  {createtest, "createtest"},
-  {dirtest, "dirtest"},
-  {exectest, "exectest"},
-  {pipe1, "pipe1"},
-  {killstatus, "killstatus"},
-  {preempt, "preempt"},
-  {exitwait, "exitwait"},
-  {reparent, "reparent" },
-  {twochildren, "twochildren"},
-  {forkfork, "forkfork"},
-  {forkforkfork, "forkforkfork"},
-  {reparent2, "reparent2"},
-  {mem, "mem"},
-  {sharedfd, "sharedfd"},
-  {fourfiles, "fourfiles"},
-  {createdelete, "createdelete"},
-  {unlinkread, "unlinkread"},
-  {linktest, "linktest"},
-  {concreate, "concreate"},
-  {linkunlink, "linkunlink"},
-  {subdir, "subdir"},
-  {bigwrite, "bigwrite"},
-  {bigfile, "bigfile"},
-  {fourteen, "fourteen"},
-  {rmdot, "rmdot"},
-  {dirfile, "dirfile"},
-  {iref, "iref"},
-  {forktest, "forktest"},
-  {sbrkbasic, "sbrkbasic"},
-  {sbrkmuch, "sbrkmuch"},
-  {kernmem, "kernmem"},
-  {MAXVAplus, "MAXVAplus"},
-  {sbrkfail, "sbrkfail"},
-  {sbrkarg, "sbrkarg"},
-  {validatetest, "validatetest"},
-  {bsstest, "bsstest"},
-  {bigargtest, "bigargtest"},
-  {argptest, "argptest"},
-  {stacktest, "stacktest"},
-  {textwrite, "textwrite"},
-  {pgbug, "pgbug" },
-  {sbrkbugs, "sbrkbugs" },
-  {sbrklast, "sbrklast"},
-  {sbrk8000, "sbrk8000"},
-  {badarg, "badarg" },
-
-  { 0, 0},
-};
-
-//
-// Section with tests that take a fair bit of time
-//
-
-// directory that uses indirect blocks
-void
-bigdir(char *s)
-{
-  enum { N = 500 };
-  int i, fd;
-  char name[10];
-
-  unlink("bd");
-
-  fd = open("bd", O_CREATE);
-  if(fd < 0){
-    printf("%s: bigdir create failed\n", s);
-    exit(1);
-  }
-  close(fd);
-
-  for(i = 0; i < N; i++){
-    name[0] = 'x';
-    name[1] = '0' + (i / 64);
-    name[2] = '0' + (i % 64);
-    name[3] = '\0';
-    if(link("bd", name) != 0){
-      printf("%s: bigdir link(bd, %s) failed\n", s, name);
-      exit(1);
-    }
-  }
-
-  unlink("bd");
-  for(i = 0; i < N; i++){
-    name[0] = 'x';
-    name[1] = '0' + (i / 64);
-    name[2] = '0' + (i % 64);
-    name[3] = '\0';
-    if(unlink(name) != 0){
-      printf("%s: bigdir unlink failed", s);
-      exit(1);
-    }
-  }
-}
-
-// concurrent writes to try to provoke deadlock in the virtio disk
-// driver.
-void
-manywrites(char *s)
-{
-  int nchildren = 4;
-  int howmany = 30; // increase to look for deadlock
-  
-  for(int ci = 0; ci < nchildren; ci++){
-    int pid = fork();
-    if(pid < 0){
-      printf("fork failed\n");
-      exit(1);
-    }
-
-    if(pid == 0){
-      char name[3];
-      name[0] = 'b';
-      name[1] = 'a' + ci;
-      name[2] = '\0';
-      unlink(name);
-      
-      for(int iters = 0; iters < howmany; iters++){
-        for(int i = 0; i < ci+1; i++){
-          int fd = open(name, O_CREATE | O_RDWR);
-          if(fd < 0){
-            printf("%s: cannot create %s\n", s, name);
-            exit(1);
-          }
-          int sz = sizeof(buf);
-          int cc = write(fd, buf, sz);
-          if(cc != sz){
-            printf("%s: write(%d) ret %d\n", s, sz, cc);
-            exit(1);
-          }
-          close(fd);
-        }
-        unlink(name);
-      }
-
-      unlink(name);
-      exit(0);
-    }
-  }
-
-  for(int ci = 0; ci < nchildren; ci++){
-    int st = 0;
-    wait(&st);
-    if(st != 0)
-      exit(st);
-  }
-  exit(0);
 }
 
 // regression test. does write() with an invalid buffer pointer cause
@@ -2772,6 +2653,21 @@ badwrite(char *s)
   close(fd);
   unlink("junk");
 
+  exit(0);
+}
+
+// regression test. test whether exec() leaks memory if one of the
+// arguments is invalid. the test passes if the kernel doesn't panic.
+void
+badarg(char *s)
+{
+  for(int i = 0; i < 50000; i++){
+    char *argv[2];
+    argv[0] = (char*)0xffffffff;
+    argv[1] = 0;
+    exec("echo", argv);
+  }
+  
   exit(0);
 }
 
@@ -2812,171 +2708,380 @@ execout(char *s)
   exit(0);
 }
 
-// can the kernel tolerate running out of disk space?
+/// clone syscall tests
+
+// check that CLONE_VM of clone() is making a process
+// with shared address space
 void
-diskfull(char *s)
+clonevm_thread(void *arg)
 {
-  int fi;
-  int done = 0;
+  int* flag = arg;
+  *flag = 0;
+  sbrk(10);
 
-  unlink("diskfulldir");
-  
-  for(fi = 0; done == 0; fi++){
-    char name[32];
-    name[0] = 'b';
-    name[1] = 'i';
-    name[2] = 'g';
-    name[3] = '0' + fi;
-    name[4] = '\0';
-    unlink(name);
-    int fd = open(name, O_CREATE|O_RDWR|O_TRUNC);
-    if(fd < 0){
-      // oops, ran out of inodes before running out of blocks.
-      printf("%s: could not create file %s\n", s, name);
-      done = 1;
-      break;
-    }
-    for(int i = 0; i < MAXFILE; i++){
-      char buf[BSIZE];
-      if(write(fd, buf, BSIZE) != BSIZE){
-        done = 1;
-        close(fd);
-        break;
-      }
-    }
-    close(fd);
-  }
-
-  // now that there are no free blocks, test that dirlink()
-  // merely fails (doesn't panic) if it can't extend
-  // directory content. one of these file creations
-  // is expected to fail.
-  int nzz = 128;
-  for(int i = 0; i < nzz; i++){
-    char name[32];
-    name[0] = 'z';
-    name[1] = 'z';
-    name[2] = '0' + (i / 32);
-    name[3] = '0' + (i % 32);
-    name[4] = '\0';
-    unlink(name);
-    int fd = open(name, O_CREATE|O_RDWR|O_TRUNC);
-    if(fd < 0)
-      break;
-    close(fd);
-  }
-
-  // this mkdir() is expected to fail.
-  if(mkdir("diskfulldir") == 0)
-    printf("%s: mkdir(diskfulldir) unexpectedly succeeded!\n");
-
-  unlink("diskfulldir");
-
-  for(int i = 0; i < nzz; i++){
-    char name[32];
-    name[0] = 'z';
-    name[1] = 'z';
-    name[2] = '0' + (i / 32);
-    name[3] = '0' + (i % 32);
-    name[4] = '\0';
-    unlink(name);
-  }
-
-  for(int i = 0; i < fi; i++){
-    char name[32];
-    name[0] = 'b';
-    name[1] = 'i';
-    name[2] = 'g';
-    name[3] = '0' + i;
-    name[4] = '\0';
-    unlink(name);
-  }
+  exit(0);
 }
 
 void
-outofinodes(char *s)
+clonevm(char* s)
 {
-  int nzz = 32*32;
-  for(int i = 0; i < nzz; i++){
-    char name[32];
-    name[0] = 'z';
-    name[1] = 'z';
-    name[2] = '0' + (i / 32);
-    name[3] = '0' + (i % 32);
-    name[4] = '\0';
-    unlink(name);
-    int fd = open(name, O_CREATE|O_RDWR|O_TRUNC);
-    if(fd < 0){
-      // failure is eventually expected.
-      break;
-    }
-    close(fd);
-  }
-
-  for(int i = 0; i < nzz; i++){
-    char name[32];
-    name[0] = 'z';
-    name[1] = 'z';
-    name[2] = '0' + (i / 32);
-    name[3] = '0' + (i % 32);
-    name[4] = '\0';
-    unlink(name);
-  }
-}
-
-struct test slowtests[] = {
-  {bigdir, "bigdir"},
-  {manywrites, "manywrites"},
-  {badwrite, "badwrite" },
-  {execout, "execout"},
-  {diskfull, "diskfull"},
-  {outofinodes, "outofinodes"},
-    
-  { 0, 0},
-};
-
-//
-// drive tests
-//
-
-// run each test in its own process. run returns 1 if child's exit()
-// indicates success.
-int
-run(void f(char *), char *s) {
+  char* stack = ((char*)malloc(4096)) + 4095;
+  int flag = 1;
   int pid;
-  int xstatus;
+  char* sbrk_val = sbrk(0);
 
-  printf("test %s: ", s);
-  if((pid = fork()) < 0) {
-    printf("runtest: fork error\n");
+  struct clone_args args = {
+      .flags = CLONE_VM,
+      .stack = (uint64)stack,
+      .fn = (uint64)clonevm_thread,
+      .arg = (uint64)&flag
+  };
+
+  pid = clone(&args);
+
+  if(pid < 0) {
+    printf("%s: clone failed\n", s);
     exit(1);
   }
+  wait(0);
+
+  __sync_synchronize();
+  exit(flag || sbrk_val == sbrk(0));
+}
+
+// check that CLONE_FS of clone() is making a process
+// with shared filesystem data
+void
+clonefs(char* s)
+{
+  struct clone_args args = {
+      .flags = CLONE_FS
+  };
+
+  mkdir("clonefs");
+  int pid = clone(&args);
+
+  if(pid < 0) {
+    printf("%s: clone failed\n", s);
+    exit(1);
+  }
+
   if(pid == 0) {
-    f(s);
+    chdir("clonefs");
     exit(0);
+  }
+  wait(0);
+  int fd = open("usertests", O_RDONLY);
+
+  if(fd == -1) {
+    // chdir successful
+    chdir("..");
+    unlink("clonefs");
   } else {
-    wait(&xstatus);
-    if(xstatus != 0) 
-      printf("FAILED\n");
-    else
-      printf("OK\n");
-    return xstatus == 0;
+    close(fd);
+    unlink("clonefs");
+    exit(1);
   }
 }
 
-int
-runtests(struct test *tests, char *justone) {
-  for (struct test *t = tests; t->s != 0; t++) {
-    if((justone == 0) || strcmp(t->s, justone) == 0) {
-      if(!run(t->f, t->s)){
-        printf("SOME TESTS FAILED\n");
-        return 1;
-      }
+// check that CLONE_FS of clone() is making a process
+// with shared file descriptor data
+void
+clonefiles(char* s)
+{
+  struct clone_args args = {
+      .flags = CLONE_FILES
+  };
+
+  int fd = open("usertests", O_RDONLY);
+  int pid = clone(&args);
+
+  if(pid < 0) {
+    printf("%s: clone failed\n", s);
+    exit(1);
+  }
+
+  if(pid == 0) {
+    close(fd);
+    exit(0);
+  }
+  wait(0);
+
+  struct stat stat;
+
+  if(fstat(fd, &stat) < 0) {
+    // closing file in processes with
+    // shared file descriptors successful
+  } else {
+    close(fd);
+    exit(1);
+  }
+}
+
+// CLONE_VM and concurrent sbrk, to check integrity
+void
+clonevmsbrk_thread(void *arg)
+{
+  for(int i = 0; i < 8192; i++) {
+    sbrk(1);
+  }
+
+  exit(0);
+}
+
+void
+clonevmsbrk(char* s)
+{
+  char* stack = ((char*)malloc(4096)) + 4095;
+  static int pid;
+  char* sbrk_val = sbrk(0);
+
+  struct clone_args args = {
+      .flags = CLONE_VM,
+      .stack = (uint64)stack,
+      .fn = (uint64)clonevmsbrk_thread,
+      .arg = 0,
+  };
+
+  pid = clone(&args);
+
+  if(pid < 0) {
+    printf("%s: clone failed\n", s);
+    exit(1);
+  }
+
+  for(int i = 0; i < 8192; i++) {
+    sbrk(1);
+  }
+  wait(0);
+
+  if((long long) sbrk(0) - (long long) sbrk_val != 8192 * 2) {
+    exit(1);
+  }
+}
+
+// clone with shared vm, files and fs, then fork
+void clonesharedfork_thread(void* arg)
+{
+  int pid = fork();
+
+  if(pid < -1) {
+    exit(1);
+  }
+
+  if(pid == 0) {
+    chdir("clonefs");
+    int* flag = arg;
+    close(*flag);
+    *flag = 0;
+    sbrk(10);
+
+    exit(0);
+  }
+  wait(0);
+
+  exit(0);
+}
+
+void
+clonesharedfork(char* s)
+{
+  char* stack = ((char*)malloc(4096)) + 4095;
+  int flag;
+  int fd;
+  int pid;
+  char* sbrk_val = sbrk(0);
+
+  struct clone_args args = {
+      .flags = CLONE_VM | CLONE_FILES | CLONE_FS,
+      .stack = (uint64)stack,
+      .fn = (uint64)clonesharedfork_thread,
+      .arg = (uint64)&flag
+  };
+
+  mkdir("clonefs");
+  fd = flag = open("usertests", O_RDONLY);
+
+  pid = clone(&args);
+  if(pid < 0) {
+    printf("%s: clone failed\n", s);
+    exit(1);
+  }
+  int xstate;
+  wait(&xstate);
+  if(xstate != 0) {
+    unlink("clonefs");
+    exit(1);
+  }
+
+  int fd2 = open("usertests", O_RDONLY);
+  if(fd2 != -1) {
+    // ok
+  }  else {
+    chdir("..");
+    unlink("clonefs");
+    exit(1);
+  }
+
+  struct stat stat;
+
+  if(fstat(fd, &stat) < 0) {
+    exit(1); // fail
+  }
+
+  __sync_synchronize();
+  if(flag != fd || sbrk_val != sbrk(0)) {
+    exit(1); // fail
+  }
+}
+
+// clone with shared vm, files and fs, then exec
+void
+clonesharedexec_thread(void* arg)
+{
+  char *echoargv[] = { "echo", "OK", 0 };
+
+  close(1);
+  int fd = open("echo-ok", O_CREATE|O_WRONLY);
+  if(fd < 0) {
+    printf("%s: create failed\n", arg);
+    exit(1);
+  }
+  if(fd != 1) {
+    printf("%s: wrong fd\n", arg);
+    exit(1);
+  }
+  if(exec("echo", echoargv) < 0){
+    printf("%s: exec echo failed\n", arg);
+    exit(1);
+  }
+  // won't get to here
+}
+
+void
+clonesharedexec(char* s)
+{
+  int fd, xstatus, pid;
+
+  char buf[3];
+
+  unlink("echo-ok");
+
+  char* stack = ((char*)malloc(4096)) + 4095;
+  struct clone_args args = {
+      .flags = CLONE_VM,
+      .stack = (uint64)stack,
+      .fn = (uint64)clonesharedexec_thread,
+      .arg = (uint64)s
+  };
+
+  pid = clone(&args);
+  if(pid < 0) {
+    printf("%s: fork failed\n", s);
+    exit(1);
+  }
+  wait(&xstatus);
+  if(xstatus != 0)
+    exit(xstatus);
+
+  close(1);
+  fd = open("console", O_RDWR);
+  if(fd != 1) {
+    exit(1);
+  }
+
+  fd = open("echo-ok", O_RDONLY);
+  if(fd < 0) {
+    printf("%s: open failed\n", s);
+    exit(1);
+  }
+  if (read(fd, buf, 2) != 2) {
+    printf("%s: read failed\n", s);
+    exit(1);
+  }
+  unlink("echo-ok");
+  if(buf[0] == 'O' && buf[1] == 'K')
+    exit(0);
+  else {
+    printf("%s: wrong output\n", s);
+    exit(1);
+  }
+
+}
+
+// check waitpid syscall
+void
+waitpid_(char* s)
+{
+  int pid[10];
+
+  for(int i = 0; i < 10; i++) {
+    pid[i] = fork();
+
+    if(pid[i] == -1) {
+      printf("%s: fork error\n", s);
+      exit(1);
+    }
+
+    if(pid[i] == 0) {
+      exit(0);
     }
   }
-  return 0;
+
+  for(int i = 0; i < 10; i++) {
+    if(waitpid(pid[i], 0) == -1) {
+      printf("%s: waitpid error\n", s);
+      exit(1);
+    }
+  }
 }
 
+// check futex syscall
+void
+futex_thread(void* arg)
+{
+  if(futex(FUTEX_WAIT, arg) == -1) {
+    exit(1);
+  }
+  exit(0);
+}
+
+void
+futex_(char* s)
+{
+  int pid[10];
+  char* stacks[10];
+
+  for(int i = 0; i < 10; i++) {
+    stacks[i] = ((char*)malloc(4096)) + 4095;
+    struct clone_args args = {
+        .flags = CLONE_VM | CLONE_FS | CLONE_FILES,
+        .stack = (uint64) stacks[i],
+        .fn = (uint64) futex_thread,
+        .arg = (uint64) &pid[i]
+    };
+
+    if(clone(&args) < 0) {
+      printf("%s: clone error\n", s);
+      exit(1);
+    }
+  }
+
+  sleep(5);
+  for(int i = 0; i < 10; i ++) {
+    if(futex(FUTEX_WAKE, &pid[i]) < 1) {
+      printf("%s: futex wake error\n");
+    }
+  }
+
+  for(int i = 0; i < 10; i++) {
+    int xstate;
+    wait(&xstate);
+    if(xstate != 0) {
+      exit(1);
+    }
+  }
+}
 
 //
 // use sbrk() to count how many free physical memory pages there are.
@@ -3044,58 +3149,169 @@ countfree()
   return n;
 }
 
+// run each test in its own process. run returns 1 if child's exit()
+// indicates success.
 int
-drivetests(int quick, int continuous, char *justone) {
-  do {
-    printf("usertests starting\n");
-    int free0 = countfree();
-    int free1 = 0;
-    if (runtests(quicktests, justone)) {
-      if(continuous != 2) {
-        return 1;
-      }
-    }
-    if(!quick) {
-      if (justone == 0)
-        printf("usertests slow tests starting\n");
-      if (runtests(slowtests, justone)) {
-        if(continuous != 2) {
-          return 1;
-        }
-      }
-    }
-    if((free1 = countfree()) < free0) {
-      printf("FAILED -- lost some free pages %d (out of %d)\n", free1, free0);
-      if(continuous != 2) {
-        return 1;
-      }
-    }
-  } while(continuous);
-  return 0;
+run(void f(char *), char *s) {
+  int pid;
+  int xstatus;
+
+  printf("test %s: ", s);
+  if((pid = fork()) < 0) {
+    printf("runtest: fork error\n");
+    exit(1);
+  }
+  if(pid == 0) {
+    f(s);
+    exit(0);
+  } else {
+    wait(&xstatus);
+    if(xstatus != 0) 
+      printf("FAILED\n");
+    else
+      printf("OK\n");
+    return xstatus == 0;
+  }
 }
 
 int
 main(int argc, char *argv[])
 {
   int continuous = 0;
-  int quick = 0;
   char *justone = 0;
 
-  if(argc == 2 && strcmp(argv[1], "-q") == 0){
-    quick = 1;
-  } else if(argc == 2 && strcmp(argv[1], "-c") == 0){
+  if(argc == 2 && strcmp(argv[1], "-c") == 0){
     continuous = 1;
   } else if(argc == 2 && strcmp(argv[1], "-C") == 0){
     continuous = 2;
   } else if(argc == 2 && argv[1][0] != '-'){
     justone = argv[1];
   } else if(argc > 1){
-    printf("Usage: usertests [-c] [-C] [-q] [testname]\n");
+    printf("Usage: usertests [-c] [testname]\n");
     exit(1);
   }
-  if (drivetests(quick, continuous, justone)) {
-    exit(1);
+  
+  struct test {
+    void (*f)(char *);
+    char *s;
+  } tests[] = {
+    {MAXVAplus, "MAXVAplus"},
+    {manywrites, "manywrites"},
+    {execout, "execout"},
+    {copyin, "copyin"},
+    {copyout, "copyout"},
+    {copyinstr1, "copyinstr1"},
+    {copyinstr2, "copyinstr2"},
+    {copyinstr3, "copyinstr3"},
+    {rwsbrk, "rwsbrk" },
+    {truncate1, "truncate1"},
+    {truncate2, "truncate2"},
+    {truncate3, "truncate3"},
+    {reparent2, "reparent2"},
+    {pgbug, "pgbug" },
+    {sbrkbugs, "sbrkbugs" },
+    // {badwrite, "badwrite" },
+    {badarg, "badarg" },
+    {reparent, "reparent" },
+    {twochildren, "twochildren"},
+    {forkfork, "forkfork"},
+    {forkforkfork, "forkforkfork"},
+    {argptest, "argptest"},
+    {createdelete, "createdelete"},
+    {linkunlink, "linkunlink"},
+    {linktest, "linktest"},
+    {unlinkread, "unlinkread"},
+    {concreate, "concreate"},
+    {subdir, "subdir"},
+    {fourfiles, "fourfiles"},
+    {sharedfd, "sharedfd"},
+    {dirtest, "dirtest"},
+    {exectest, "exectest"},
+    {bigargtest, "bigargtest"},
+    {bigwrite, "bigwrite"},
+    {bsstest, "bsstest"},
+    {sbrkbasic, "sbrkbasic"},
+    {sbrkmuch, "sbrkmuch"},
+    {kernmem, "kernmem"},
+    {sbrkfail, "sbrkfail"},
+    {sbrkarg, "sbrkarg"},
+    {sbrklast, "sbrklast"},
+    {sbrk8000, "sbrk8000"},
+    {validatetest, "validatetest"},
+    {stacktest, "stacktest"},
+    {opentest, "opentest"},
+    {writetest, "writetest"},
+    {writebig, "writebig"},
+    {createtest, "createtest"},
+    {openiputtest, "openiput"},
+    {exitiputtest, "exitiput"},
+    {iputtest, "iput"},
+    {mem, "mem"},
+    {pipe1, "pipe1"},
+    {killstatus, "killstatus"},
+    {preempt, "preempt"},
+    {exitwait, "exitwait"},
+    {rmdot, "rmdot"},
+    {fourteen, "fourteen"},
+    {bigfile, "bigfile"},
+    {dirfile, "dirfile"},
+    {iref, "iref"},
+    {forktest, "forktest"},
+    {bigdir, "bigdir"}, // slow
+    {clonevm, "clonevm"},
+    {clonefs, "clonefs"},
+    {clonefiles, "clonefiles"},
+    {clonesharedfork, "clonesharedfork"},
+    {clonesharedexec, "clonesharedexec"},
+    {waitpid_, "waitpid"},
+    {futex_, "futex"},
+    { 0, 0},
+  };
+
+  if(continuous){
+    printf("continuous usertests starting\n");
+    while(1){
+      int fail = 0;
+      int free0 = countfree();
+      for (struct test *t = tests; t->s != 0; t++) {
+        if(!run(t->f, t->s)){
+          fail = 1;
+          break;
+        }
+      }
+      if(fail){
+        printf("SOME TESTS FAILED\n");
+        if(continuous != 2)
+          exit(1);
+      }
+      int free1 = countfree();
+      if(free1 < free0){
+        printf("FAILED -- lost %d free pages\n", free0 - free1);
+        if(continuous != 2)
+          exit(1);
+      }
+    }
   }
-  printf("ALL TESTS PASSED\n");
-  exit(0);
+
+  printf("usertests starting\n");
+  int free0 = countfree();
+  int free1 = 0;
+  int fail = 0;
+  for (struct test *t = tests; t->s != 0; t++) {
+    if((justone == 0) || strcmp(t->s, justone) == 0) {
+      if(!run(t->f, t->s))
+        fail = 1;
+    }
+  }
+
+  if(fail){
+    printf("SOME TESTS FAILED\n");
+    exit(1);
+  } else if((free1 = countfree()) < free0){
+    printf("FAILED -- lost some free pages %d (out of %d)\n", free1, free0);
+    exit(1);
+  } else {
+    printf("ALL TESTS PASSED\n");
+    exit(0);
+  }
 }
